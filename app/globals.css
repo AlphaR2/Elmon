@@ -1,0 +1,151 @@
+@import "tailwindcss";
+
+/* Elmon design tokens. Dark trading-terminal look. Chart series use a validated categorical order
+   (blue, orange, aqua: all-pairs CVD dE >= 9.4 on the panel surface); status colors are reserved for
+   good/bad/warn and always ship with a sign, icon or label. */
+@theme {
+  --color-bg: #0b0c0e;
+  --color-panel: #131519;
+  --color-panel-2: #1a1d22;
+  --color-raise: #20242a;
+  --color-line: #252930;
+  --color-line-2: #323842;
+  --color-ink: #eceef1;
+  --color-dim: #a1a9b5;
+  --color-faint: #6b7380;
+  --color-accent: #3987e5;
+  --color-accent-ink: #8fbaf2;
+  --color-series-2: #d95926;
+  --color-series-3: #199e70;
+  --color-good: #2ebd6b;
+  --color-bad: #e5534b;
+  --color-warn: #f0b429;
+  --color-violet: #9085e9;
+  --color-grid: #22262c;
+
+  --font-sans: var(--font-inter), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-jb), ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+
+  --animate-pulse-soft: pulse-soft 1.6s ease-in-out infinite;
+  @keyframes pulse-soft {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+  }
+}
+
+html {
+  color-scheme: dark;
+}
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+}
+body {
+  font-family: var(--font-sans);
+}
+.num,
+table {
+  font-variant-numeric: tabular-nums;
+}
+.mono {
+  font-family: var(--font-mono);
+}
+::selection {
+  background: color-mix(in oklab, var(--color-accent) 40%, transparent);
+}
+table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--color-panel);
+}
+.scroll-thin::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: var(--color-line-2);
+  border-radius: 4px;
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+/* Phones: iOS zooms into any field under 16px; keep fields at 16px there. */
+@media (max-width: 639px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom), 0px);
+}
+
+/* Hover/focus hint bubble (see <Hint>). Pure CSS so it works in tables without portals. */
+.hint {
+  position: relative;
+}
+.hint > .hint-bubble {
+  pointer-events: none;
+  position: absolute;
+  z-index: 60;
+  left: 50%;
+  top: calc(100% + 6px);
+  transform: translateX(-50%) translateY(-2px);
+  width: max-content;
+  max-width: min(280px, 78vw);
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: var(--color-raise);
+  border: 1px solid var(--color-line-2);
+  color: var(--color-dim);
+  font-size: 11.5px;
+  line-height: 1.45;
+  font-weight: 400;
+  text-align: left;
+  white-space: normal;
+  letter-spacing: normal;
+  text-transform: none;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+  opacity: 0;
+  transition: opacity 0.12s, transform 0.12s;
+}
+.hint:hover > .hint-bubble,
+.hint:focus-within > .hint-bubble {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.hint.hint-left > .hint-bubble {
+  left: 0;
+  transform: none;
+}
+
+/* Recharts: keep chart chrome recessive */
+.recharts-cartesian-grid line {
+  stroke: var(--color-grid);
+}
+.recharts-text {
+  fill: var(--color-faint);
+  font-size: 11px;
+}
+.recharts-surface:focus,
+.recharts-wrapper:focus,
+.recharts-sector:focus {
+  outline: none;
+}
