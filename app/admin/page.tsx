@@ -349,6 +349,17 @@ function CodeStatus({ s }: { s: string }) {
 // ---------- members ----------
 
 function Members({ d, reload, say }: P) {
+  const [temp, setTemp] = useState<{ email: string; password: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const reset = async (email: string) => {
+    if (!confirm(`Reset the password for ${email}? Their current password stops working. You get a temporary one to send them, and they choose their own when they next sign in.`)) return;
+    const r = await fetch("/api/admin/members/password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
+    const b = await r.json().catch(() => ({}));
+    if (!r.ok) return say(b.error ?? "Could not reset the password.");
+    setTemp({ email, password: b.password });
+    setCopied(false);
+    await reload();
+  };
   const remove = async (email: string) => {
     if (!confirm(`Remove ${email}? They lose access immediately, even if signed in. Their past runs are not deleted.`)) return;
     const r = await fetch(`/api/admin/members?email=${encodeURIComponent(email)}`, { method: "DELETE" });
@@ -368,6 +379,23 @@ function Members({ d, reload, say }: P) {
           ))}
         </ul>
       </Panel>
+      {temp && (
+        <div className="rounded-lg border border-accent/40 bg-accent/[0.07] p-4">
+          <div className="text-[12px] text-dim">
+            Temporary password for <span className="text-ink">{temp.email}</span>. Copy it now: it is not shown again. Send it to them privately.
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <span className="mono text-[18px] sm:text-[20px] tracking-wide select-all">{temp.password}</span>
+            <Button size="sm" onClick={() => navigator.clipboard.writeText(temp.password).then(() => setCopied(true))}>
+              {copied ? "Copied" : "Copy"}
+            </Button>
+            <Button size="sm" kind="ghost" onClick={() => setTemp(null)}>
+              Done
+            </Button>
+          </div>
+          <div className="text-faint text-[12px] mt-2">They sign in with it, and the app asks them to choose their own password straight away.</div>
+        </div>
+      )}
       <Panel title="Members" sub="People who joined with an invite code.">
         {d.members.length === 0 ? (
           <Empty title="No members yet">Create an invite code and share it.</Empty>
@@ -382,7 +410,10 @@ function Members({ d, reload, say }: P) {
                   {m.runs_month} runs · {Number(m.credits_month).toLocaleString()} credits this month
                 </span>
                 {m.code_hint && <span className="text-faint text-[11.5px] mono">via …{m.code_hint}</span>}
-                <span className="ml-auto">
+                <span className="ml-auto flex gap-2">
+                  <Button size="sm" onClick={() => reset(m.email)}>
+                    Reset password
+                  </Button>
                   <Button size="sm" kind="danger" onClick={() => remove(m.email)}>
                     Remove
                   </Button>
@@ -545,6 +576,7 @@ const ACTION_LABEL: Record<string, string> = {
   "code.revoked": "revoked an invite code",
   "member.joined": "joined",
   "member.removed": "removed a member",
+  "member.password_reset": "reset a member's password",
   "run.stopped": "stopped someone's run",
   "run.cleared": "cleared someone's run",
   "settings.changed": "changed settings",

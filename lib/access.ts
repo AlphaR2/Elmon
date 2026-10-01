@@ -1,4 +1,4 @@
-import { createHash, randomInt } from "node:crypto";
+import { createHash, randomInt, timingSafeEqual } from "node:crypto";
 import { getDb, type Db } from "./db";
 
 // Who may use Elmon:
@@ -16,12 +16,17 @@ export function adminEmails(): Set<string> {
 export const isAdminEmail = (email: string | null | undefined) => !!email && adminEmails().has(normEmail(email));
 
 // Role for a verified email, or null if it has no access. Touches last_seen at most every 5 minutes.
-export async function roleFor(email: string, userId?: string | null): Promise<Role | null> {
+// `issuedAtSec`: when the session was issued (JWT iat). Sessions from before an admin password reset are refused.
+export async function roleFor(email: string, userId?: string | null, issuedAtSec?: number | null): Promise<Role | null> {
   const e = normEmail(email);
   if (isAdminEmail(e)) return "admin";
   const db = await getDb();
-  const m = await db.one<{ last_seen: number | null; user_id: string | null }>("SELECT last_seen, user_id FROM members WHERE email = $1", [e]);
+  const m = await db.one<{ last_seen: number | null; user_id: string | null; sessions_valid_after: number | null }>(
+    "SELECT last_seen, user_id, sessions_valid_after FROM members WHERE email = $1",
+    [e],
+  );
   if (!m) return null;
+  if (issuedAtSec != null && m.sessions_valid_after != null && issuedAtSec * 1000 < m.sessions_valid_after) return null;
   const now = Date.now();
   if (m.last_seen == null || now - m.last_seen > 5 * 60_000 || (userId && !m.user_id)) {
     await db.run("UPDATE members SET last_seen = $2, user_id = COALESCE(user_id, $3) WHERE email = $1", [e, now, userId ?? null]);
@@ -162,4 +167,75 @@ export async function tooManyAttempts(ip: string | null, email: string): Promise
   }
   if (!over) for (const [key] of keys) await db.run("INSERT INTO login_attempts (key, ts) VALUES ($1, $2)", [key, now]);
   return over;
+}
+
+// ---------- password sign-in ----------
+
+export const MIN_PASSWORD = 10;
+
+// Why a password is not acceptable, or null. Supabase stores it (bcrypt, so at most 72 bytes are used).
+export function passwordProblem(pw: string): string | null {
+  if (pw.length < MIN_PASSWORD) return `Use at least ${MIN_PASSWORD} characters.`;
+  if (Buffer.byteLength(pw, "utf8") > 72) return "Use at most 72 characters.";
+  if (/^(.)\1+$/.test(pw)) return "Choose a less predictable password.";
+  return null;
+}
+
+// Temporary password an admin hands over after a reset: easy to read out, hard to guess (about 70 bits).
+export function tempPassword(): string {
+  const a = "23456789abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ";
+  const part = () => Array.from({ length: 4 }, () => a[randomInt(a.length)]).join("");
+  return `${part()}-${part()}-${part()}`;
+}
+
+// Sign-up with a code: consume one use and make them a member, in one transaction. False if the code ran out
+// or stopped being valid since it was checked (another sign-up took the last use).
+export async function redeemCodeNow(codeId: number, email: string, userId: string): Promise<boolean> {
+  const e = normEmail(email);
+  const db = await getDb();
+  return db.tx(async (t) => {
+    const used = await t.one<{ hint: string }>(
+      `UPDATE invite_codes SET uses = uses + 1
+       WHERE id = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > $2) AND uses < max_uses
+         AND (bound_email IS NULL OR bound_email = $3)
+       RETURNING hint`,
+      [codeId, Date.now(), e],
+    );
+    if (!used) return false;
+    const now = Date.now();
+    await t.run(
+      `INSERT INTO members (email, user_id, joined_at, last_seen, invite_code_id) VALUES ($1, $2, $3, $3, $4)
+       ON CONFLICT (email) DO UPDATE SET user_id = excluded.user_id, invite_code_id = excluded.invite_code_id, must_change_password = false`,
+      [e, userId, now, codeId],
+    );
+    await audit(e, "member.joined", e, { code: `…${used.hint}` }, t);
+    return true;
+  });
+}
+
+export async function memberRecord(email: string): Promise<{ user_id: string | null; must_change_password: boolean } | undefined> {
+  const db = await getDb();
+  return db.one("SELECT user_id, must_change_password FROM members WHERE email = $1", [normEmail(email)]);
+}
+
+// Every session the member had before now stops working (whole seconds, so a sign-in in this same second still
+// counts as after).
+export async function cutOffSessions(email: string): Promise<void> {
+  const db = await getDb();
+  await db.run("UPDATE members SET sessions_valid_after = $2 WHERE email = $1", [normEmail(email), Math.floor(Date.now() / 1000) * 1000]);
+}
+
+// First admin sign-up must present ELMON_ADMIN_SETUP_CODE (a secret only the owner has). Without it, anyone who knew
+// an admin's email could create that account first. Constant-time compare; unset = admin sign-up is closed.
+export function adminSetupCodeOk(given: string | null | undefined): boolean {
+  const want = process.env.ELMON_ADMIN_SETUP_CODE?.trim();
+  if (!want || want.length < 12 || !given) return false;
+  const a = createHash("sha256").update(want).digest();
+  const b = createHash("sha256").update(given.trim()).digest();
+  return timingSafeEqual(a, b);
+}
+
+export async function setMustChangePassword(email: string, value: boolean): Promise<void> {
+  const db = await getDb();
+  await db.run("UPDATE members SET must_change_password = $2 WHERE email = $1", [normEmail(email), value]);
 }

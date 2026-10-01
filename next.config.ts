@@ -34,7 +34,11 @@ const config: NextConfig = {
   serverExternalPackages: ["postgres", "@electric-sql/pglite"],
   poweredByHeader: false,
   async headers() {
-    return [{ source: "/(.*)", headers: securityHeaders }];
+    return [
+      { source: "/(.*)", headers: securityHeaders },
+      // API answers (temporary passwords, invite codes, wallet data) are never stored by browsers or proxies.
+      { source: "/api/:path*", headers: [{ key: "Cache-Control", value: "no-store, max-age=0" }] },
+    ];
   },
 };
 

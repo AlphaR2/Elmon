@@ -37,21 +37,30 @@ Railway: worker (npm run worker) ── claims runs ─────┘
    Railway works too (`railway.json`, same variables). On a deploy the run in hand goes back to the queue and
    continues from its last finished stage.
 3. **Vercel (app)**: set `DATABASE_URL` (transaction pooler, port 6543), `NEXT_PUBLIC_SUPABASE_URL`,
-   `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_SITE_URL`, `ELMON_ADMIN_EMAILS`. Do **not** set the Helius key.
+   `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_SITE_URL`, `ELMON_ADMIN_EMAILS`, `ELMON_ADMIN_SETUP_CODE`,
+   `SUPABASE_SERVICE_ROLE_KEY`.
+   Do **not** set the Helius key.
 
 ### Access and admin
 
-- **Admins** are the emails in `ELMON_ADMIN_EMAILS`. Only the environment can make someone an admin.
+- **Sign-in is email + password.** No emails are sent: accounts are created already confirmed, so no SMTP setup.
+- **Admins** are the emails in `ELMON_ADMIN_EMAILS` (only the environment can make someone an admin). An admin
+  creates their account on the sign-in page with "I have an invite code", using `ELMON_ADMIN_SETUP_CODE` as the
+  code. Without that secret nobody can create an account for an admin email.
 - **Everyone else joins with an invite code.** An admin opens **Admin → Invites**, picks uses (default 5), expiry
   (default 7 days), an optional label, and optionally one email the code is limited to, then shares the code
-  (`ELMN-XXXX-XXXX`, shown once). The newcomer enters email and code on the sign-in page; a use is consumed only
-  when they click the email link, so a leaked code cannot be burned with fake emails. Sign-in attempts are limited.
-- **Admin tab:** invite codes (create, revoke, see who joined), members (remove: locked out at once), all runs
-  (open, stop, clear anyone's), an emergency "pause new runs" switch, settings without a deploy (live runs and max
-  run budget per member/admin, retention, default depth, monthly credit limit), credit usage by stage, member and
-  run, and an activity log.
-- **Admin extras:** higher limits (5 live runs, 200k budget by default), runs go ahead of members in the queue, and
-  starting runs still works while new runs are paused.
+  (`ELMN-XXXX-XXXX`, shown once). The newcomer picks "I have an invite code" and enters email, password (10+
+  characters) and the code. Sign-in attempts are limited per email and per IP.
+- **Forgotten password:** an admin clicks **Reset password** next to the member in **Admin → Members** and sends the
+  temporary password shown; every session the member had is signed out, and they choose their own password at
+  next sign-in. Anyone can change their
+  password on the **Account** page.
+- **Admin tab:** invite codes, members (reset password, remove: locked out at once), all runs (open, stop, clear
+  anyone's), an emergency "pause new runs" switch, settings without a deploy, credit usage, and an activity log.
+- **Admin extras:** higher limits (5 live runs, 200k budget by default), runs go first in the queue, and starting
+  runs still works while new runs are paused.
+- **Supabase settings:** Authentication → Sign In / Providers → turn **off "Allow new users to sign up"** (accounts
+  are created by the app only) and set the minimum password length to 10.
 
 ## Local
 

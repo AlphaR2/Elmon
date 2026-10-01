@@ -6,6 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 export interface Me {
   email: string;
   role: "admin" | "member";
+  mustChangePassword?: boolean;
   workerOnline: boolean;
   heliusConfigured: boolean;
   creditsLeft: number;
@@ -82,9 +83,9 @@ export function Shell({ children }: { children: ReactNode }) {
             {me && (
               <div className="flex items-center gap-2 px-2 py-2 rounded-md border border-line bg-panel">
                 <span className="grid place-items-center size-7 rounded-full bg-raise text-[11px] font-medium uppercase">{me.email.slice(0, 1)}</span>
-                <span className="min-w-0 flex-1 truncate text-[12px] text-dim" title={me.email}>
+                <Link href="/account" className="min-w-0 flex-1 truncate text-[12px] text-dim hover:text-ink" title={`${me.email}: account and password`}>
                   {me.email}
-                </span>
+                </Link>
                 <button onClick={signOut} className="text-faint hover:text-ink text-[11.5px]" title="Sign out">
                   Sign out
                 </button>
@@ -111,6 +112,11 @@ export function Shell({ children }: { children: ReactNode }) {
                 />
               )}
               {me && (
+                <Link href="/account" className="h-9 px-3 rounded-md border border-line-2 text-[13px] text-dim inline-flex items-center" title={me.email}>
+                  Account
+                </Link>
+              )}
+              {me && (
                 <button onClick={signOut} className="h-9 px-3 rounded-md border border-line-2 text-[13px] text-dim" title={me.email}>
                   Sign out
                 </button>
@@ -119,7 +125,14 @@ export function Shell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="min-w-0 px-4 sm:px-6 lg:px-8 pt-5 pb-28 lg:py-6 max-w-[1560px] w-full">{children}</main>
+        <main className="min-w-0 px-4 sm:px-6 lg:px-8 pt-5 pb-28 lg:py-6 max-w-[1560px] w-full">
+          {me?.mustChangePassword && path !== "/account" && (
+            <Link href="/account?reset=1" className="block mb-4 rounded-lg border border-warn/40 bg-warn/[0.06] px-4 py-2.5 text-[12.5px] text-warn hover:bg-warn/[0.1]">
+              Your password was reset by an admin. Choose your own now →
+            </Link>
+          )}
+          {children}
+        </main>
 
         <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 border-t border-line bg-panel/95 backdrop-blur pb-safe" aria-label="Main">
           <div className={`grid ${nav.length === 4 ? "grid-cols-4" : "grid-cols-3"}`}>

@@ -1,7 +1,7 @@
 "use client";
 import { Suspense, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { Button, Spinner } from "../components/ui";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Button, Segmented, Spinner } from "../components/ui";
 
 export default function LoginPage() {
   return (
@@ -11,39 +11,49 @@ export default function LoginPage() {
   );
 }
 
+const MIN = 10;
+
 function Login() {
   const q = useSearchParams();
+  const router = useRouter();
+  const [mode, setMode] = useState<"signin" | "join">("signin");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [code, setCode] = useState("");
-  const [showCode, setShowCode] = useState(false);
-  const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
-  const initialError = {
-    link: "That sign-in link has expired or was already used. Send a new one.",
-    code: "Your invite code ran out or was revoked before you clicked the link. Ask your admin for a new one.",
-    access: "This email does not have access yet. Enter the invite code your admin gave you.",
-  }[q.get("error") ?? ""] ?? null;
-  const [error, setError] = useState<string | null>(initialError);
+  const [show, setShow] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const next = q.get("next") ?? "/";
 
-  async function send(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setState("sending");
     setError(null);
-    const r = await fetch("/api/auth/login", {
+    if (mode === "join") {
+      if (password.length < MIN) return setError(`Use at least ${MIN} characters for your password.`);
+      if (password !== confirm) return setError("The two passwords do not match.");
+    }
+    setBusy(true);
+    const r = await fetch(mode === "signin" ? "/api/auth/login" : "/api/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, code: code.trim() || undefined, next: q.get("next") ?? "/" }),
+      body: JSON.stringify(mode === "signin" ? { email, password } : { email, password, code }),
     }).catch(() => null);
     const b = r ? await r.json().catch(() => ({})) : {};
-    if (!r || !r.ok) {
-      setError(b.error ?? "Could not send the link. Try again.");
-      setState("idle");
-      return;
+    setBusy(false);
+    if (!r || !r.ok) return setError(b.error ?? "Something went wrong. Try again.");
+    if (b.signIn) {
+      setMode("signin");
+      return setError(b.message);
     }
-    setState("sent");
+    const target = b.mustChangePassword ? "/account?reset=1" : next.startsWith("/") && !next.startsWith("//") ? next : "/";
+    router.replace(target);
+    router.refresh();
   }
 
+  const field = "w-full h-11 sm:h-10 bg-bg border border-line rounded-lg px-3 outline-none focus:border-accent/70";
   return (
-    <div className="min-h-screen grid place-items-center px-4">
+    <div className="min-h-screen grid place-items-center px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-2.5 mb-8 justify-center">
           <svg viewBox="0 0 32 32" className="size-9" aria-hidden>
@@ -56,60 +66,71 @@ function Login() {
             <div className="text-[10.5px] uppercase tracking-[0.14em] text-faint">Analytics</div>
           </div>
         </div>
-        <div className="rounded-xl border border-line bg-panel p-6">
-          {state === "sent" ? (
-            <div className="text-center">
-              <div className="font-medium">Check your email</div>
-              <p className="text-dim mt-1.5">If {email} has access, a sign-in link is on its way. It works once.</p>
-              <button className="text-accent-ink mt-4 text-[12.5px] hover:underline" onClick={() => setState("idle")}>
-                Use a different email
-              </button>
-            </div>
-          ) : (
-            <form onSubmit={send} className="space-y-4">
-              <div>
-                <div className="font-medium">Sign in</div>
-                <p className="text-dim text-[12.5px] mt-1">We email you a one-time link. Access is by invitation.</p>
+        <div className="rounded-xl border border-line bg-panel p-5 sm:p-6">
+          <div className="flex justify-center mb-5">
+            <Segmented
+              value={mode}
+              onChange={(m) => {
+                setMode(m);
+                setError(null);
+              }}
+              options={[
+                { v: "signin", label: "Sign in" },
+                { v: "join", label: "I have an invite code" },
+              ]}
+            />
+          </div>
+          <form onSubmit={submit} className="space-y-3.5">
+            <label className="block">
+              <div className="text-dim text-[12.5px] mb-1.5">Email</div>
+              <input type="email" required autoFocus autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@team.com" className={field} />
+            </label>
+            <label className="block">
+              <div className="flex items-center justify-between text-dim text-[12.5px] mb-1.5">
+                <span>{mode === "join" ? "Choose a password" : "Password"}</span>
+                <button type="button" onClick={() => setShow((v) => !v)} className="text-faint hover:text-ink text-[12px]">
+                  {show ? "Hide" : "Show"}
+                </button>
               </div>
               <input
-                type="email"
+                type={show ? "text" : "password"}
                 required
-                autoFocus
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@team.com"
-                className="w-full h-11 sm:h-10 bg-bg border border-line rounded-lg px-3 outline-none focus:border-accent/70"
+                autoComplete={mode === "join" ? "new-password" : "current-password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className={field}
               />
-              {showCode || q.get("error") === "access" ? (
-                <div>
-                  <label className="block text-dim text-[12.5px] mb-1.5" htmlFor="code">
-                    Invite code
-                  </label>
+              {mode === "join" && <div className="text-faint text-[11.5px] mt-1">At least {MIN} characters.</div>}
+            </label>
+            {mode === "join" && (
+              <>
+                <label className="block">
+                  <div className="text-dim text-[12.5px] mb-1.5">Repeat password</div>
+                  <input type={show ? "text" : "password"} required autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} className={field} />
+                </label>
+                <label className="block">
+                  <div className="text-dim text-[12.5px] mb-1.5">Invite code</div>
                   <input
-                    id="code"
                     value={code}
                     onChange={(e) => setCode(e.target.value)}
                     placeholder="ELMN-XXXX-XXXX"
                     autoComplete="off"
                     spellCheck={false}
-                    className="w-full h-11 sm:h-10 bg-bg border border-line rounded-lg px-3 mono uppercase tracking-wider outline-none focus:border-accent/70"
+                    className={`${field} mono uppercase tracking-wider`}
                   />
-                  <p className="text-faint text-[11.5px] mt-1.5">Only needed the first time. Your code is used once you click the email link.</p>
-                </div>
-              ) : (
-                <button type="button" onClick={() => setShowCode(true)} className="text-accent-ink text-[12.5px] hover:underline">
-                  New here? I have an invite code
-                </button>
-              )}
-              {error && <div className="text-bad text-[12.5px]">{error}</div>}
-              <div className="flex">
-                <Button kind="primary" size="lg" type="submit" disabled={state === "sending" || !email}>
-                  {state === "sending" ? <Spinner /> : null}
-                  Email me a link
-                </Button>
-              </div>
-            </form>
-          )}
+                  <div className="text-faint text-[11.5px] mt-1">From your admin. Only needed once. (Admins: use the admin setup code.)</div>
+                </label>
+              </>
+            )}
+            {error && <div className="text-bad text-[12.5px]">{error}</div>}
+            <div className="pt-1 [&>button]:w-full">
+              <Button kind="primary" size="lg" type="submit" disabled={busy || !email || !password}>
+                {busy ? <Spinner /> : null}
+                {mode === "signin" ? "Sign in" : "Create my account"}
+              </Button>
+            </div>
+            {mode === "signin" && <p className="text-faint text-[12px] text-center">Forgot your password? Ask your admin to reset it.</p>}
+          </form>
         </div>
       </div>
     </div>

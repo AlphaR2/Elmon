@@ -24,7 +24,7 @@ export async function currentUser(): Promise<User | null> {
   const { data, error } = await sb.auth.getClaims();
   const claims = data?.claims;
   if (error || !claims?.sub || typeof claims.email !== "string") return null;
-  const role = await roleFor(claims.email, claims.sub);
+  const role = await roleFor(claims.email, claims.sub, typeof claims.iat === "number" ? claims.iat : null);
   if (!role) return null;
   return { id: claims.sub, email: claims.email.toLowerCase(), role };
 }
