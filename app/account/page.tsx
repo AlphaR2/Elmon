@@ -23,6 +23,14 @@ function Account() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const forced = q.get("reset") === "1" || !!me?.mustChangePassword;
+  const [leaving, setLeaving] = useState(false);
+  const signOut = async (everywhere: boolean) => {
+    if (everywhere && !confirm("Sign out on every device where this account is signed in?")) return;
+    setLeaving(true);
+    await fetch("/api/auth/logout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ everywhere }) }).catch(() => {});
+    router.replace("/login");
+    router.refresh();
+  };
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -61,6 +69,16 @@ function Account() {
           Your password was reset by an admin. Choose your own now: enter the temporary one as the current password.
         </div>
       )}
+      <Panel title="Sign out" sub="Sign out here, or everywhere you are signed in (other browsers, your phone).">
+        <div className="p-4 flex flex-wrap gap-2">
+          <Button onClick={() => signOut(false)} disabled={leaving}>
+            Sign out
+          </Button>
+          <Button kind="danger" onClick={() => signOut(true)} disabled={leaving}>
+            Sign out of all devices
+          </Button>
+        </div>
+      </Panel>
       <Panel title="Change password">
         <form onSubmit={save} className="p-4 space-y-3.5">
           <label className="block">

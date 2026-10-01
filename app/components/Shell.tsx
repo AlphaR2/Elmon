@@ -48,8 +48,10 @@ export function Shell({ children }: { children: ReactNode }) {
   const nav = me?.role === "admin" ? [...NAV, ADMIN_NAV] : NAV;
 
   const signOut = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
+    await fetch("/api/auth/logout", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
+    setMe(null);
     router.replace("/login");
+    router.refresh();
   };
 
   return (
@@ -81,12 +83,21 @@ export function Shell({ children }: { children: ReactNode }) {
           <div className="mt-auto p-3 space-y-2">
             <WorkerState me={me} />
             {me && (
-              <div className="flex items-center gap-2 px-2 py-2 rounded-md border border-line bg-panel">
-                <span className="grid place-items-center size-7 rounded-full bg-raise text-[11px] font-medium uppercase">{me.email.slice(0, 1)}</span>
-                <Link href="/account" className="min-w-0 flex-1 truncate text-[12px] text-dim hover:text-ink" title={`${me.email}: account and password`}>
-                  {me.email}
+              <div className="rounded-md border border-line bg-panel">
+                <Link href="/account" className="flex items-center gap-2 px-2 py-2 hover:bg-panel-2 rounded-t-md" title="Account and password">
+                  <span className="grid place-items-center size-7 rounded-full bg-raise text-[11px] font-medium uppercase">{me.email.slice(0, 1)}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[12px] text-ink">{me.email}</span>
+                    <span className="block text-[11px] text-faint">{me.role === "admin" ? "Admin · " : ""}Account</span>
+                  </span>
                 </Link>
-                <button onClick={signOut} className="text-faint hover:text-ink text-[11.5px]" title="Sign out">
+                <button
+                  onClick={signOut}
+                  className="w-full flex items-center justify-center gap-2 h-9 border-t border-line text-[12.5px] text-dim hover:text-bad hover:bg-bad/[0.06] rounded-b-md transition"
+                >
+                  <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M6 2.5H3.5a1 1 0 00-1 1v9a1 1 0 001 1H6M10.5 11l3-3-3-3M13.5 8H6" />
+                  </svg>
                   Sign out
                 </button>
               </div>
