@@ -1,0 +1,14 @@
+# Fly.io: the pipeline worker, one always-on machine with no public address.
+# Deploy:  fly deploy --ha=false      Logs:  fly logs      Secrets: see README (Deploy).
+app = "elmon-worker"          # must be unique on Fly; change it if `fly apps create` says it is taken
+primary_region = "lhr"        # London: closest Fly region to the Supabase database (EU West, Ireland)
+kill_signal = "SIGTERM"
+kill_timeout = 60             # seconds to finish the current item before a deploy stops it
+
+[build]
+  dockerfile = "Dockerfile.worker"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

@@ -30,9 +30,12 @@ Railway: worker (npm run worker) ── claims runs ─────┘
 1. **Supabase**: create a project. Apply the schema with `supabase db push`, or let the worker do it on first start
    (it runs `supabase/migrations/*.sql` once each). Auth > URL configuration: add `https://<your-app>/auth/callback`
    to the redirect URLs.
-2. **Railway (worker)**: deploy this repo; `railway.json` starts `npm run worker`. Set `DATABASE_URL` (session pooler,
-   port 5432), `DB_POOL_MAX=5`, `HELIUS_API_KEY`, `HELIUS_MONTHLY_CREDITS`, and optionally `BIRDEYE_API_KEY`. Give it a drain time of 60 s so a deploy
-   lets the current item finish; a run in progress goes back to the queue and continues from its last finished stage.
+2. **Worker on Fly.io** (about $3-4/month): `fly apps create elmon-worker`, then set secrets
+   (`fly secrets set DATABASE_URL='<session pooler, port 5432>' DB_POOL_MAX='5' HELIUS_API_KEY='…'
+   HELIUS_MONTHLY_CREDITS='…' BIRDEYE_API_KEY='…'`) and `fly deploy --ha=false` (one machine). `fly.toml` and
+   `Dockerfile.worker` describe it; the build runs on Fly's servers. `fly logs` should show `worker started`.
+   Railway works too (`railway.json`, same variables). On a deploy the run in hand goes back to the queue and
+   continues from its last finished stage.
 3. **Vercel (app)**: set `DATABASE_URL` (transaction pooler, port 6543), `NEXT_PUBLIC_SUPABASE_URL`,
    `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_SITE_URL`, `ELMON_ADMIN_EMAILS`. Do **not** set the Helius key.
 

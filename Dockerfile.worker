@@ -1,0 +1,13 @@
+# The pipeline worker for Fly.io (see fly.toml). Only the worker's code goes in: lib/, scripts/ and the database
+# migrations it applies on start. The web app is deployed separately on Vercel.
+FROM node:22-slim
+WORKDIR /app
+ENV NODE_ENV=production
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+COPY lib ./lib
+COPY scripts ./scripts
+COPY supabase ./supabase
+# node runs tsx directly (not through npm) so a deploy's SIGTERM reaches the worker: it finishes the item in hand
+# and puts its run back in the queue.
+CMD ["node", "node_modules/tsx/dist/cli.mjs", "scripts/worker.ts"]
