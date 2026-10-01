@@ -4,6 +4,7 @@ import { INSIDER_TAGS } from "@/lib/core/tags";
 import { duration, mult, pct, short, sol, usd } from "@/lib/format";
 import { Addr, BotBadge, Chip, Empty, Hint, KindBadge, Panel, ScoreBar, ShareBar, Signed, Tag, Th, TokenChip } from "../../components/ui";
 import { RunnerProfitScatter, type TraderPoint } from "../../components/charts";
+import { RowsSkeleton, Skeleton } from "../../components/skeletons";
 import { isTrader, type RunData, type WalletRow } from "./types";
 
 type Sort = { key: string; dir: 1 | -1 };
@@ -190,7 +191,7 @@ export function TradersTab({ data, onOpen, onWatch }: { data: RunData; onOpen: (
           </Panel>
           <Panel title="Top picks" sub="Highest runner score, then profit">
             {top.length === 0 ? (
-              <Empty>{stillWorking ? "Checking wallets…" : "No scored wallets."}</Empty>
+              stillWorking ? <RowsSkeleton rows={4} /> : <Empty>No scored wallets.</Empty>
             ) : (
               <ol className="divide-y divide-line">
                 {top.map((w, i) => (
@@ -351,7 +352,10 @@ export function TradersTab({ data, onOpen, onWatch }: { data: RunData; onOpen: (
                       </td>
                       <td className="px-3 py-2">
                         {pending ? (
-                          <span className="text-faint">checking…</span>
+                          <span className="inline-flex items-center gap-2" title="Checking this wallet">
+                            <Skeleton className="h-3.5 w-7" />
+                            <Skeleton className="h-1.5 w-14 rounded-full" />
+                          </span>
                         ) : (
                           <ScoreBar v={w.runnerScore} hint={w.historyStatus?.startsWith("skipped") ? "skipped" : w.historyStatus === "done" ? "too few" : "—"} />
                         )}

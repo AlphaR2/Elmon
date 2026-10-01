@@ -3,6 +3,7 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button, Panel, Spinner } from "../components/ui";
 import { useMe } from "../components/Shell";
+import { Skeleton } from "../components/skeletons";
 
 export default function AccountPage() {
   return (
@@ -60,7 +61,7 @@ function Account() {
               {me.role === "admin" ? " (admin)" : ""}.
             </>
           ) : (
-            "Loading…"
+            <Skeleton className="h-3.5 w-56 inline-block align-middle" />
           )}
         </p>
       </div>

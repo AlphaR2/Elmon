@@ -6,6 +6,7 @@ import type { AppSettings } from "@/lib/appSettings";
 import { ago } from "@/lib/format";
 import { Button, Empty, Hint, Panel, Segmented, Spinner, Stat, StatusPill } from "../components/ui";
 import { Bars } from "../components/charts";
+import { AdminSkeleton } from "../components/skeletons";
 
 type Section = "overview" | "invites" | "members" | "runs" | "settings" | "activity";
 
@@ -41,7 +42,7 @@ export default function AdminPage() {
       </div>
     );
   if (state === "error") return <div className="text-bad">Could not load the admin page. Try again.</div>;
-  if (!data) return <div className="text-dim">Loading…</div>;
+  if (!data) return <AdminSkeleton />;
 
   const say = (m: string) => {
     setNotice(m);

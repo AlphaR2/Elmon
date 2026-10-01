@@ -13,6 +13,7 @@ import { TokensTab } from "./TokensTab";
 import { LogTab } from "./LogTab";
 import { WalletDrawer } from "./WalletDrawer";
 import { useMe } from "../../components/Shell";
+import { RunPageSkeleton } from "../../components/skeletons";
 
 const STAGES: Record<string, { label: string; tip: string }> = {
   launch: { label: "Launches", tip: "Reading each token's first trades" },
@@ -147,7 +148,7 @@ export function RunView({ id }: { id: number }) {
         </Link>
       </div>
     );
-  if (!data || !kpi) return <div className="text-dim">Loading…</div>;
+  if (!data || !kpi) return <RunPageSkeleton />;
   const { run } = data;
   const p = run.progress;
   const stages = run.mode === "tokens" ? ["launch", "candidates", "funders", "clusters", "history", "runners", "finalize"] : ["seed", "funders", "clusters", "history", "runners", "finalize"];

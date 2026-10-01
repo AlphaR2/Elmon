@@ -82,6 +82,15 @@ export function Shell({ children }: { children: ReactNode }) {
           </nav>
           <div className="mt-auto p-3 space-y-2">
             <WorkerState me={me} />
+            {!me && (
+              <div className="rounded-md border border-line bg-panel px-2 py-2 flex items-center gap-2" aria-hidden>
+                <span className="skeleton block size-7 rounded-full" />
+                <span className="flex-1 space-y-1.5">
+                  <span className="skeleton block h-3 w-32" />
+                  <span className="skeleton block h-2.5 w-16" />
+                </span>
+              </div>
+            )}
             {me && (
               <div className="rounded-md border border-line bg-panel">
                 <Link href="/account" className="flex items-center gap-2 px-2 py-2 hover:bg-panel-2 rounded-t-md" title="Account and password">

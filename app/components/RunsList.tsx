@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ago, short } from "@/lib/format";
 import { Empty, Panel, StatusPill } from "./ui";
+import { RowsSkeleton } from "./skeletons";
 
 interface RunItem {
   id: number;
@@ -61,7 +62,7 @@ export function RunsList({ limit, title = "Recent runs" }: { limit?: number; tit
       right={limit && runs && runs.length > limit ? <Link className="text-dim hover:text-ink text-[12px]" href="/runs">All runs →</Link> : null}
     >
       {!list ? (
-        <Empty>{err ? "Could not load runs." : "Loading…"}</Empty>
+        err ? <Empty>Could not load runs.</Empty> : <RowsSkeleton rows={limit ? Math.min(limit, 4) : 6} />
       ) : list.length === 0 ? (
         <Empty title="No runs yet">Paste a few tokens that ran and press Find wallets.</Empty>
       ) : (

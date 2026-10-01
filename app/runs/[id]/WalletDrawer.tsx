@@ -6,6 +6,7 @@ import type { OnTokenResult } from "@/lib/pipeline/run";
 import { ago, duration, mult, pct, short, sol, usd } from "@/lib/format";
 import { Addr, Button, Hint, ShareBar, Signed, Tag } from "../../components/ui";
 import { PnlCurve, RunnerHitsChart } from "../../components/charts";
+import { Skeleton, SkeletonLines } from "../../components/skeletons";
 import { tokenLabel, type RunData, type WalletRow } from "./types";
 
 interface Detail {
@@ -74,7 +75,13 @@ export function WalletDrawer({ runId, data, w, onClose, onWatch }: { runId: numb
 
         <div className="p-4 sm:p-5 space-y-6 pb-safe">
           <div>
-            <p className="text-[14px] leading-snug">{detail ? verdict(w, s, r, Number(data.run.settings.convictionMultiple ?? 10)) : failed ? "Could not load this wallet." : "Loading…"}</p>
+            {detail ? (
+              <p className="text-[14px] leading-snug">{verdict(w, s, r, Number(data.run.settings.convictionMultiple ?? 10))}</p>
+            ) : failed ? (
+              <p className="text-[14px] leading-snug text-bad">Could not load this wallet.</p>
+            ) : (
+              <SkeletonLines n={2} />
+            )}
             {w.tags.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-2.5">
                 {w.tags.map((t) => (
@@ -94,6 +101,20 @@ export function WalletDrawer({ runId, data, w, onClose, onWatch }: { runId: numb
             <Tile label="Win rate" v={s ? pct(s.winRate) : "—"} sub={s ? `${s.wins}/${s.closed} closed` : undefined} />
             <Tile label="Median hold" v={duration(s?.medianHoldMin)} sub={s?.tradesPerDay != null ? `${s.tradesPerDay.toFixed(1)} trades/day` : undefined} />
           </div>
+
+          {!detail && !failed && (
+            <div className="space-y-6" role="status" aria-busy="true">
+              <span className="sr-only">Loading wallet</span>
+              <div className="space-y-2">
+                <Skeleton className="h-3 w-32" />
+                <Skeleton className="h-52 w-full rounded-lg" />
+              </div>
+              <div className="space-y-2">
+                <Skeleton className="h-3 w-28" />
+                <Skeleton className="h-40 w-full rounded-lg" />
+              </div>
+            </div>
+          )}
 
           {r && (
             <Section title="Runners caught" sub="Tokens outside your batch it bought early that later ran. Your pasted tokens are not included.">

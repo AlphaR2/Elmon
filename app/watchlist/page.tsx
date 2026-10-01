@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ago, parseAddresses, pct, sol } from "@/lib/format";
 import { Addr, Button, Empty, Menu, MenuItem, Panel, ScoreBar, Signed, Tag } from "../components/ui";
+import { RowsSkeleton } from "../components/skeletons";
 
 interface Entry {
   wallet: string;
@@ -87,7 +88,7 @@ export default function WatchlistPage() {
         }
       >
         {!list ? (
-          <Empty>Loading…</Empty>
+          <RowsSkeleton rows={5} />
         ) : list.length === 0 ? (
           <Empty title="Nothing starred yet">Open a run and press ☆ next to a wallet you want to follow.</Empty>
         ) : (
