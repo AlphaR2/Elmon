@@ -5,7 +5,7 @@ import { duration, mult, pct, short, sol, usd } from "@/lib/format";
 import { Addr, BotBadge, Chip, Empty, Hint, KindBadge, Panel, ScoreBar, ShareBar, Signed, Tag, Th, TokenChip } from "../../components/ui";
 import { RunnerProfitScatter, type TraderPoint } from "../../components/charts";
 import { RowsSkeleton, Skeleton } from "../../components/skeletons";
-import { isTrader, type RunData, type WalletRow } from "./types";
+import { isTrader, walletListOf, type RunData, type WalletRow } from "./types";
 
 type Sort = { key: string; dir: 1 | -1 };
 
@@ -17,11 +17,14 @@ function onTokensSummary(w: WalletRow) {
   return { n: known.length, closed: known.filter((o) => o.status === "closed").length, pnl: got - spent, multiple: spent > 0 ? got / spent : null };
 }
 
-// Default order is the team's: runners caught first, profit second.
+// Default order is what the wallet realized: net SOL on other tokens (unsold bags at zero).
 const val = (w: WalletRow, key: string): number => {
   const s = w.stats;
   const r = w.runner;
   switch (key) {
+    case "closed": return s?.closed ?? -1;
+    case "txs": return s?.txsRead ?? -1;
+    case "excl": return s?.excludedProfitSol ?? -1;
     case "runner": return (w.runnerScore ?? -1) * 1000 + (w.score ?? -1);
     case "runners": return (r?.weighted ?? -1) * 1000 + (r?.runners ?? 0);
     case "capture": return r?.medianCapture ?? -1;
@@ -35,6 +38,60 @@ const val = (w: WalletRow, key: string): number => {
     default: return 0;
   }
 };
+
+const NotMeasured = () => (
+  <span className="text-faint" title="Not measured: this run was saved before this figure existed.">
+    not measured
+  </span>
+);
+
+// How much history stands behind the numbers. Missing fields read as "not measured", never as zero.
+function HistoryFlag({ truncated }: { truncated: boolean | null | undefined }) {
+  if (truncated === undefined) return <NotMeasured />;
+  if (truncated === null) return <span className="text-faint" title="The read could not tell whether older history exists.">unknown</span>;
+  return truncated ? (
+    <span className="text-warn" title="Older history exists and was not read. Sells outside the window are missed, so net SOL is biased down.">
+      truncated
+    </span>
+  ) : (
+    <span className="text-faint" title="The read reached this wallet's first transaction.">complete</span>
+  );
+}
+
+const operatorCell = (id: string | null | undefined) =>
+  id === undefined ? <NotMeasured /> : id === null ? <span className="text-faint" title="No operator: bot-like, or not computed.">—</span> : <span className="mono text-dim">{id.replace(/^op:/, "").slice(0, 10)}</span>;
+
+// What the run found about the list as a whole. The web run has no control group, so it can say "not enough
+// independent operators" or "unproven", and never "good wallets".
+function ListNotice({ data }: { data: RunData }) {
+  if (data.run.status !== "done") return null;
+  const wl = walletListOf(data);
+  if (!wl) {
+    return (
+      <div className="rounded-lg border border-line bg-panel-2/60 px-4 py-2.5 text-[12.5px] text-dim">
+        Evidence columns not measured for this run (it was saved before they existed). The figures are what each wallet realized on other tokens. They are not advice.
+      </div>
+    );
+  }
+  const left = wl.droppedByReason["too-few-closed"] + wl.droppedByReason.bot + wl.droppedByReason["top-trade"];
+  const detail = `${wl.walletsRanked} wallet${wl.walletsRanked === 1 ? "" : "s"} ranked, ${left} left out (${wl.droppedByReason["too-few-closed"]} too few closed trades, ${wl.droppedByReason.bot} bot-like, ${wl.droppedByReason["top-trade"]} profit from one trade).`;
+  if (wl.status === "fewer_than_10_operators") {
+    return (
+      <div className="rounded-lg border border-warn/35 bg-warn/[0.06] px-4 py-2.5 text-[12.5px] text-warn" role="status">
+        <div className="font-medium">
+          Not enough independent operators to call any of these wallets good: {wl.operatorCount} {wl.operatorCount === 1 ? "operator" : "operators"} after merging wallets that look like one actor (fewer than 10).
+        </div>
+        <div className="mt-0.5 opacity-90">{detail} The table below is data, not a recommendation, and says what each wallet realized, not what a follower would have made.</div>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg border border-line bg-panel-2/60 px-4 py-2.5 text-[12.5px] text-dim" role="status">
+      <div className="font-medium text-text">Unproven: {wl.operatorCount} independent operators, not yet compared with a control group.</div>
+      <div className="mt-0.5">{detail} Figures are what each wallet realized, not what a follower would have made, and not advice.</div>
+    </div>
+  );
+}
 
 // Phone layout of one trader: the same numbers as the table row, stacked and labelled.
 function TraderCard({
@@ -95,6 +152,12 @@ function TraderCard({
           {stat("Profit", w.score != null ? Math.round(w.score) : "—")}
           {stat("Net SOL", <Signed v={s?.netSol}>{sol(s?.netSol, 1)}</Signed>)}
         </div>
+        <div className="grid grid-cols-4 gap-2 mt-2.5">
+          {stat("Closed", s ? s.closed : <NotMeasured />)}
+          {stat("Txs read", s ? s.txsRead.toLocaleString() : <NotMeasured />)}
+          {stat("History", s ? <HistoryFlag truncated={s.truncated} /> : <NotMeasured />)}
+          {stat("Operator", s ? operatorCell(s.operatorId) : <NotMeasured />)}
+        </div>
         {w.runnerHits.length > 0 && (
           <div className="mt-3">
             <div className="text-faint text-[11.5px] mb-1">Runners caught</div>
@@ -140,7 +203,7 @@ export function TradersTab({ data, onOpen, onWatch }: { data: RunData; onOpen: (
   const [onlyStarred, setOnlyStarred] = useState(false);
   const [minHits, setMinHits] = useState(0);
   const [q, setQ] = useState("");
-  const [sort, setSort] = useState<Sort>({ key: "runner", dir: -1 });
+  const [sort, setSort] = useState<Sort>({ key: "net", dir: -1 });
 
   const all = useMemo(() => data.wallets.filter(isTrader), [data.wallets]);
   const maxHits = Math.max(0, ...all.map((w) => w.hits));
@@ -170,8 +233,12 @@ export function TradersTab({ data, onOpen, onWatch }: { data: RunData; onOpen: (
 
   const stillWorking = ["queued", "running"].includes(data.run.status) && !data.run.stagesDone.includes("runners");
 
+  const wl = walletListOf(data);
+  const tableNote = wl ? (wl.status === "fewer_than_10_operators" ? "not ranked as good wallets" : "unproven: not yet compared with a control") : null;
+
   return (
     <div className="space-y-4">
+      <ListNotice data={data} />
       {all.length > 0 && (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
           <Panel
@@ -189,7 +256,7 @@ export function TradersTab({ data, onOpen, onWatch }: { data: RunData; onOpen: (
               {points.length > 0 && unplotted > 0 && <div className="text-faint text-[11.5px] mt-2">{unplotted} wallets not plotted: missing a runner or profit score.</div>}
             </div>
           </Panel>
-          <Panel title="Top picks" sub="Highest runner score, then profit">
+          <Panel title="Top by runner score" sub="A sort order, not a recommendation">
             {top.length === 0 ? (
               stillWorking ? <RowsSkeleton rows={4} /> : <Empty>No scored wallets.</Empty>
             ) : (
@@ -229,6 +296,7 @@ export function TradersTab({ data, onOpen, onWatch }: { data: RunData; onOpen: (
         title={
           <span>
             Traders <span className="text-faint font-normal text-[12px] ml-1.5">{rows.length} shown</span>
+            {tableNote && <span className="text-warn font-normal text-[12px] ml-1.5">· {tableNote}</span>}
           </span>
         }
         right={
@@ -307,6 +375,17 @@ export function TradersTab({ data, onOpen, onWatch }: { data: RunData; onOpen: (
                     Net SOL
                   </Th>
                   <Th tip="Its single most profitable position on other tokens.">Best trade</Th>
+                  <Th sortKey="closed" sort={sort} setSort={setSort} tip="Positions that were bought and then sold out. The sample size behind the scores.">
+                    Closed
+                  </Th>
+                  <Th sortKey="txs" sort={sort} setSort={setSort} tip="Transactions of this wallet that were read. More is better evidence.">
+                    Txs read
+                  </Th>
+                  <Th tip="Whether the read reached the wallet's first transaction. Truncated means older sells may be missing.">History</Th>
+                  <Th sortKey="excl" sort={sort} setSort={setSort} tip="SOL received from positions left out of the score (tokens that arrived by transfer, or were sold before any buy we saw). Shown so it cannot hide.">
+                    Excluded SOL
+                  </Th>
+                  <Th tip="Wallets that share funding or trade in lockstep count as one operator.">Operator</Th>
                   <Th sortKey="win" sort={sort} setSort={setSort} tip="Closed positions that made money">
                     Win
                   </Th>
@@ -412,6 +491,11 @@ export function TradersTab({ data, onOpen, onWatch }: { data: RunData; onOpen: (
                           <span className="text-faint">—</span>
                         )}
                       </td>
+                      <td className="px-3 py-2 num">{s ? s.closed : <NotMeasured />}</td>
+                      <td className="px-3 py-2 num text-dim">{s ? s.txsRead.toLocaleString() : <NotMeasured />}</td>
+                      <td className="px-3 py-2">{s ? <HistoryFlag truncated={s.truncated} /> : <NotMeasured />}</td>
+                      <td className="px-3 py-2 num text-dim">{s ? (s.excludedProfitSol === undefined ? <NotMeasured /> : sol(s.excludedProfitSol, 1)) : <NotMeasured />}</td>
+                      <td className="px-3 py-2">{s ? operatorCell(s.operatorId) : <NotMeasured />}</td>
                       <td className="px-3 py-2 text-dim">
                         {pct(s?.winRate)}
                         {s?.closed ? <span className="text-faint"> /{s.closed}</span> : null}

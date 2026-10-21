@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getDb, resetDbForTests } from "@/lib/db";
 import { createRun, executeRun, getRun } from "@/lib/pipeline/run";
-import { markExported } from "@/lib/queries";
+import { exportRows, markExported, toCsv } from "@/lib/queries";
 import { sweep } from "@/lib/worker";
 import { cachedHistory } from "@/lib/pipeline/cache";
 import { guard } from "@/lib/auth";
@@ -107,5 +107,35 @@ describe("access", () => {
   it("sign-in redirects stay on this site", () => {
     expect(safeNext("/runs/3")).toBe("/runs/3");
     for (const bad of ["//evil.com", "https://evil.com", "/\\evil.com", "", null, "runs"]) expect(safeNext(bad)).toBe("/");
+  });
+});
+
+describe("wallet list export", () => {
+  beforeEach(async () => {
+    await resetDbForTests();
+  });
+
+  it("sorts by net SOL, wallets without a figure last, and carries the evidence columns", async () => {
+    const { id } = await createRun("tokens", ["M1", "M2", "M3"], { earlyBuyers: 20, minClosedPositions: 5, funderScope: "all" });
+    await executeRun(id, new FakeRpc(world(), { gtfa: true }), { now: () => NOW });
+    const rows = await exportRows(id, "traders");
+    expect(rows.length).toBeGreaterThan(2);
+    for (const col of ["operator_id", "closed", "txs_read", "truncated", "excluded_profit_sol", "top_trade_share", "net_sol"]) expect(Object.keys(rows[0])).toContain(col);
+    const nets = rows.map((r) => (typeof r.net_sol === "number" ? r.net_sol : null));
+    const seenNull = nets.indexOf(null);
+    if (seenNull >= 0) expect(nets.slice(seenNull).every((n) => n === null)).toBe(true);
+    const numeric = nets.filter((n): n is number => n !== null);
+    expect(numeric).toEqual([...numeric].sort((a, b) => b - a));
+    expect(rows[0].wallet).toBe("S1"); // the profitable repeat buyer is first, whatever its runner score
+    expect(rows[0].txs_read).toBeGreaterThan(0);
+  });
+
+  it("escapes spreadsheet formulas in the new text columns", () => {
+    const csv = toCsv([{ wallet: "W1", operator_id: "=HYPERLINK(\"http://x\")", truncated: true, excluded_profit_sol: 1.5 }]);
+    const dataRow = csv.split("\n")[1];
+    expect(dataRow).toContain("'=HYPERLINK");
+    expect(dataRow.startsWith("W1,")).toBe(true);
+    expect(toCsv([{ operator_id: "+1+1" }]).split("\n")[1]).toBe("'+1+1");
+    expect(toCsv([{ operator_id: "@SUM(A1)" }]).split("\n")[1]).toBe("'@SUM(A1)");
   });
 });

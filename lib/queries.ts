@@ -2,6 +2,7 @@ import { getDb, json } from "./db";
 import type { OnTokenResult, RunRow } from "./pipeline/run";
 import { getAppSettings } from "./appSettings";
 import type { TraderStats } from "./core/pnl";
+import type { WalletListSummary } from "./core/walletList.types";
 import type { RunnerStats } from "./core/runners";
 import type { MarketInfo } from "./market";
 import { monthlyCreditsUsed, monthlyLimit, runCreditsUsed } from "./credits";
@@ -18,7 +19,7 @@ export interface RunSummary {
   inputs: string[];
   status: string;
   stage: string | null;
-  progress: { stage?: string; done?: number; total?: number; note?: string | null; credits?: number };
+  progress: { stage?: string; done?: number; total?: number; note?: string | null; credits?: number; walletList?: WalletListSummary };
   error: string | null;
   credits: number;
   settingsHash: string;
@@ -357,6 +358,16 @@ export function toCsv(rows: Record<string, unknown>[]): string {
   return [cols.join(","), ...rows.map((r) => cols.map((c) => esc(r[c])).join(","))].join("\n");
 }
 
+// The wallet list is ordered by what the wallet realized (net SOL, unsold bags at zero); wallets with no figure last.
+// Ties keep the order they came in.
+export function byNetSol(a: { stats: { netSol: number } | null }, b: { stats: { netSol: number } | null }): number {
+  const x = a.stats?.netSol, y = b.stats?.netSol;
+  if (x == null && y == null) return 0;
+  if (x == null) return 1;
+  if (y == null) return -1;
+  return y - x;
+}
+
 export type ExportKind = "traders" | "starred" | "insiders" | "buyers";
 
 export async function exportRows(id: number, kind: ExportKind, viewer: Viewer = null): Promise<Record<string, unknown>[]> {
@@ -367,12 +378,14 @@ export async function exportRows(id: number, kind: ExportKind, viewer: Viewer = 
     return d.wallets
       .filter((w) => w.role === "candidate" || w.role === "input")
       .filter((w) => kind === "traders" || w.watched)
-      .sort((a, b) => (b.runnerScore ?? -1) - (a.runnerScore ?? -1) || (b.score ?? -1) - (a.score ?? -1))
+      .sort(byNetSol)
       .map((w) => ({
         wallet: w.wallet,
+        operator_id: w.stats?.operatorId, closed: w.stats?.closed, txs_read: w.stats?.txsRead, truncated: w.stats?.truncated,
+        excluded_profit_sol: w.stats?.excludedProfitSol, top_trade_share: w.stats?.topTradeShare,
         runner_score: w.runnerScore, runners: w.runner?.runners, weighted_runners: w.runner?.weighted, median_capture: w.runner?.medianCapture,
         conviction_runners: w.runner?.convictionCount, median_runner_entry_usd: w.runner?.medianEntryMcapUsd,
-        profit_score: w.score, net_sol: w.stats?.netSol, win_rate: w.stats?.winRate, closed: w.stats?.closed,
+        profit_score: w.score, net_sol: w.stats?.netSol, win_rate: w.stats?.winRate,
         median_multiple: w.stats?.medianMultiple, median_hold_min: w.stats?.medianHoldMin, trades_per_day: w.stats?.tradesPerDay,
         runner_tokens: w.runnerHits.map((h) => `${h.symbol ?? h.mint} ${Math.round(h.peakMultiple)}x`).join(" | "),
         best_trade: w.best ? `${w.best.symbol ?? w.best.mint} +${w.best.pnlSol.toFixed(2)} SOL` : null,

@@ -11,7 +11,8 @@
     "demo": "tsx scripts/fake-helius.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "cli": "tsx scripts/cli.ts"
+    "cli": "tsx scripts/cli.ts",
+    "live-check": "tsx scripts/live-check.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",

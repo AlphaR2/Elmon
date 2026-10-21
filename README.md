@@ -1,8 +1,9 @@
 # Elmon Analytics
 
 Paste Solana tokens that ran. Elmon finds the wallets that got in early on several of them, sets insiders aside, and
-ranks the rest the way the team judges wallets: **how many other runners they caught first, profit second**. Star the
-good ones and export them.
+ranks the rest by **what each wallet realized on other tokens (net SOL)**, with the evidence beside every score: closed
+trades, history read, SOL from positions left out, and which operator the wallet belongs to. Star the good ones and
+export them.
 
 Analysis only: no keys to sign with, no trading.
 
@@ -106,6 +107,19 @@ CLI (same pipeline): `npm run cli -- tokens <mint> <mint> ... --set earlyBuyers=
 
 ## How wallets are judged
 
+- **Order.** The Traders tab and the exports are ordered by **net SOL** (SOL out minus SOL in on other tokens, unsold bags
+  at zero), highest first; wallets with no figure come last. The runner score and profit score are still shown and can be
+  sorted on. The figures are what the **wallet** realized, not what a follower would have made, and not advice.
+- **Evidence columns.** Closed trades, transactions read, whether the history was truncated, SOL received from positions
+  left out of the score, and the operator id. Runs saved before these existed show "not measured", never zero.
+- **Operators.** Wallets that share funding, or trade in lockstep (3+ shared tokens, 70%+ overlap, buys within 10 s of
+  each other), count as one operator (rule: docs/wallet-list-contract.md). When fewer than 10 independent operators
+  remain, the tab says so instead of presenting a list; otherwise it says "unproven", because a web run has no control
+  group.
+- **Control report (CLI, no network).** `npx tsx scripts/realized-report.ts --candidates c.txt --control k.txt --from <unix>
+  --to <unix> --split-at <unix> [--exclude-mints A,B] [--min-closed 5] [--out report.md]` reads saved histories only (0
+  credits), cuts both lists to one window, ranks on the half before `--split-at`, scores the other half, and prints
+  the verdict: `passes` only when 10+ operators beat a control of 20+ operators.
 - **Candidates** come from your tokens. **The ranking does not.** You pasted winners, so everyone early on them looks
   good. Both scores use only the wallet's trades on other tokens. What it did on yours is shown, not scored.
 - **Runner** = a token the wallet bought at or under $300k market cap that later reached 5x its entry and $1M+

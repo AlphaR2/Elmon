@@ -2,6 +2,24 @@ import { describe, expect, it } from "vitest";
 import { buildPositions, isBotLike, traderScore, traderStats } from "@/lib/core/pnl";
 import type { OwnerEvent } from "@/lib/solana/tx";
 
+// Fixed seed: a failing property case can be replayed, and the message prints it.
+const SEED = 20261021;
+function seeded(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const ZERO_EXCLUDED = {
+  "transfer-in": { count: 0, proceedsSol: 0 },
+  "sold-before-buy": { count: 0, proceedsSol: 0 },
+  "transferred-out": { count: 0, proceedsSol: 0 },
+};
+
 let slot = 0;
 const ev = (mint: string, kind: OwnerEvent["kind"], tokens: number, sol: number, t: number): OwnerEvent => ({
   signature: `s${++slot}`, slot, blockTime: t, owner: "W", mint, kind,
@@ -95,20 +113,64 @@ describe("trader stats", () => {
   });
 
   it("score is bounded and monotonic in profit (property)", () => {
+    const rnd = seeded(SEED);
     for (let i = 0; i < 200; i++) {
-      const closed = 5 + Math.floor(Math.random() * 100);
+      const closed = 5 + Math.floor(rnd() * 100);
       const base = {
         txsRead: 0, windowStart: 0, windowEnd: 0, windowDays: 1, positions: closed, closed, open: 0, excluded: 0,
-        wins: 0, winRate: Math.random(), closedPnlSol: 0, realizedSol: 0, spentSol: 0,
-        medianMultiple: Math.random() * 20, bigWinShare: 0, medianHoldMin: 1, avgBuySol: 1, tradesPerDay: 1,
+        wins: 0, winRate: rnd(), closedPnlSol: 0, realizedSol: 0, spentSol: 0,
+        medianMultiple: rnd() * 20, bigWinShare: 0, medianHoldMin: 1, avgBuySol: 1, tradesPerDay: 1,
         botLike: false, best: null, worst: null, top: [], lastTradeTime: 0, profitableWeeksShare: null, maxDrawdownSol: 0, pnlCurve: [],
+        excludedProfitSol: 0, excludedCount: 0, excludedByReason: ZERO_EXCLUDED, topTradeShare: null, truncated: null, operatorId: null,
       };
-      const x = (Math.random() - 0.5) * 200;
+      const x = (rnd() - 0.5) * 200;
       const lo = traderScore({ ...base, netSol: x }, 5)!;
       const hi = traderScore({ ...base, netSol: x + 5 }, 5)!;
-      expect(lo).toBeGreaterThanOrEqual(0);
-      expect(hi).toBeLessThanOrEqual(100);
-      expect(hi).toBeGreaterThanOrEqual(lo);
+      const why = `seed ${SEED}, case ${i}`;
+      expect(lo, why).toBeGreaterThanOrEqual(0);
+      expect(hi, why).toBeLessThanOrEqual(100);
+      expect(hi, why).toBeGreaterThanOrEqual(lo);
     }
+  });
+
+  it("reports excluded proceeds per reason, not as profit", () => {
+    const st = traderStats(
+      [
+        ev("A", "buy", 100, 1, 0),
+        ev("A", "sell", 300, 5, 10), // sold 3x what was bought: sold-before-buy, only the part we hold counts as proceeds
+        ev("B", "transfer_in", 100, 0, 0),
+        ev("B", "sell", 100, 7, 10), // transfer-in: proceeds 7
+        ev("C", "buy", 100, 1, 0),
+        ev("C", "sell", 100, 3, 10), // judged, closed, +2
+      ],
+      { now: 1e6, openGraceHours: 0, txsRead: 5, historyComplete: true },
+    );
+    expect(st.excludedCount).toBe(2);
+    const ps = buildPositions([ev("A", "buy", 100, 1, 0), ev("A", "sell", 300, 5, 10), ev("B", "transfer_in", 100, 0, 0), ev("B", "sell", 100, 7, 10)]);
+    const want = ps.filter((p) => p.status === "excluded").reduce((a, p) => a + p.proceedsSol, 0);
+    expect(want).toBeGreaterThan(7); // both positions carry proceeds
+    expect(st.excludedProfitSol).toBeCloseTo(want);
+    expect(st.excludedByReason["sold-before-buy"].count).toBe(1);
+    expect(st.excludedByReason["sold-before-buy"].proceedsSol).toBeGreaterThan(0);
+    expect(st.excludedByReason["transfer-in"].count).toBe(1);
+    expect(st.excludedByReason["transfer-in"].proceedsSol).toBeCloseTo(7);
+    expect(st.excludedByReason["transferred-out"].count).toBe(0);
+    expect(st.netSol).toBeCloseTo(2); // excluded proceeds never reach netSol
+    expect(st.truncated).toBe(false);
+  });
+
+  it("truncated follows historyComplete, and is null when unknown", () => {
+    const o = { now: 1e6, openGraceHours: 0, txsRead: 1 };
+    const e = [ev("C", "buy", 100, 1, 0), ev("C", "sell", 100, 3, 10)];
+    expect(traderStats(e, { ...o, historyComplete: false }).truncated).toBe(true);
+    expect(traderStats(e, o).truncated).toBeNull();
+  });
+
+  it("topTradeShare is the best closed trade over netSol, only when netSol > 0", () => {
+    const o = { now: 1e6, openGraceHours: 0, txsRead: 1 };
+    const oneBig = [ev("A", "buy", 1, 1, 0), ev("A", "sell", 1, 9, 10), ev("B", "buy", 1, 1, 20), ev("B", "sell", 1, 1.5, 30)]; // +8, +0.5
+    expect(traderStats(oneBig, o).topTradeShare).toBeCloseTo(8 / 8.5);
+    const loser = [ev("A", "buy", 1, 2, 0), ev("A", "sell", 1, 1, 10)];
+    expect(traderStats(loser, o).topTradeShare).toBeNull();
   });
 });

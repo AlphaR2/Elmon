@@ -6,6 +6,9 @@ import { buildClusters, type WalletFacts } from "../core/clusters";
 import { computeTags } from "../core/tags";
 import { buildPositions, traderScore, traderStats, type TraderStats } from "../core/pnl";
 import { batchTokenWeight, runnerStats, type RunnerStats } from "../core/runners";
+import { buildOperators } from "../core/operators";
+import { rankRealized } from "../core/rank";
+import type { DropReason, OperatorInput, WalletListSummary } from "../core/walletList.types";
 import { ensureFacts, ensureSolPrice, peakMcapAfter, type MarketSource, type TokenFacts } from "../tokens";
 
 const usdShort = (x: number) => (x >= 1e6 ? `$${x / 1e6}M` : `$${Math.round(x / 1e3)}K`);
@@ -167,6 +170,8 @@ export interface Deps {
   fetchMarket?: (mints: string[]) => Promise<Map<string, MarketInfo>>;
   market?: MarketSource; // runner data (Jupiter, GeckoTerminal); without it runners stay unknown
   now?: () => number; // unix seconds
+  // The wallet list's rank and operator steps. Default to lib/core; tests inject fakes.
+  walletList?: { rank?: typeof rankRealized; operators?: typeof buildOperators };
 }
 
 class Ctx {
@@ -433,7 +438,7 @@ async function stageHistory(c: Ctx, pastedMints: string[]) {
     try {
       const h = await cachedHistory(c.rpc, r.wallet, { maxTxs: c.s.historyMaxTxs, adaptive: c.s.adaptiveHistory });
       fetchedTxs += h.newTxs;
-      const stats = traderStats(h.events, { excludeMints: exclude, now, openGraceHours: c.s.openGraceHours, txsRead: h.txsRead });
+      const stats = traderStats(h.events, { excludeMints: exclude, now, openGraceHours: c.s.openGraceHours, txsRead: h.txsRead, historyComplete: h.complete });
       const onTokens: OnTokenResult[] = [];
       for (const b of buysBy.get(r.wallet) ?? []) {
         let evs = h.events.filter((e) => e.mint === b.mint);
@@ -651,6 +656,58 @@ export async function requestRunnerRecheck(runId: number): Promise<"queued" | "b
   });
 }
 
+// ---------- wallet list ----------
+
+// Operator ids go into each scored wallet's stats; the run keeps a summary of the ranked list. Both are computed
+// from rows already saved (and the saved histories), so a resumed run gives the same answer and nothing is fetched.
+// Operator signatures use the buys a wallet made OUTSIDE the pasted tokens: every candidate was early on those, so
+// they would link independent early buyers to each other.
+export async function computeWalletList(
+  runId: number,
+  s: RunSettings,
+  pastedMints: string[],
+  fns: { rank?: typeof rankRealized; operators?: typeof buildOperators } = {},
+): Promise<WalletListSummary> {
+  const rank = fns.rank ?? rankRealized;
+  const operators = fns.operators ?? buildOperators;
+  const db = await getDb();
+  const rows = await db.q<{ wallet: string; cluster_id: number | null; stats: string | null }>(
+    "SELECT wallet, cluster_id, stats FROM wallets WHERE run_id = $1 AND role IN ('candidate', 'input') AND history_status = 'done' AND stats IS NOT NULL ORDER BY wallet",
+    [runId],
+  );
+  const exclude = new Set(pastedMints);
+  const scored = rows
+    .map((r) => ({ wallet: r.wallet, clusterId: r.cluster_id, stats: json<TraderStats | null>(r.stats, null) }))
+    .filter((r): r is { wallet: string; clusterId: number | null; stats: TraderStats } => r.stats != null);
+
+  const inputs: OperatorInput[] = [];
+  for (const r of scored) {
+    const events = (await loadHistoryEvents(r.wallet)) ?? [];
+    const buys = events
+      .filter((e) => e.kind === "buy" && e.blockTime != null && !exclude.has(e.mint))
+      .map((e) => ({ mint: e.mint, time: e.blockTime as number }));
+    inputs.push({ wallet: r.wallet, clusterId: r.clusterId, botLike: r.stats.botLike, buys });
+  }
+  const operatorOf = new Map<string, string>();
+  for (const op of operators(inputs)) for (const w of op.wallets) operatorOf.set(w, op.operatorId);
+  for (const r of scored) {
+    r.stats.operatorId = operatorOf.get(r.wallet) ?? null;
+    await db.run("UPDATE wallets SET stats = $1 WHERE run_id = $2 AND wallet = $3", [JSON.stringify(r.stats), runId, r.wallet]);
+  }
+
+  const { ranked, dropped } = rank(scored.map((r) => ({ wallet: r.wallet, stats: r.stats })), { minClosed: s.minClosedPositions });
+  const droppedByReason: Record<DropReason, number> = { "too-few-closed": 0, bot: 0, "top-trade": 0 };
+  for (const d of dropped) droppedByReason[d.reason]++;
+  const operatorCount = new Set(ranked.map((r) => operatorOf.get(r.wallet)).filter((o): o is string => !!o)).size;
+  return {
+    operatorCount,
+    walletsRanked: ranked.length,
+    droppedByReason,
+    // The web run has no control group, so it can say "not enough operators" but never "passes".
+    status: operatorCount < 10 ? "fewer_than_10_operators" : "unproven",
+  };
+}
+
 // ---------- driver ----------
 
 export async function executeRun(runId: number, rpc: Rpc, deps: Deps = {}): Promise<void> {
@@ -688,8 +745,15 @@ export async function executeRun(runId: number, rpc: Rpc, deps: Deps = {}): Prom
       await db.run("UPDATE runs SET stages_done = $1 WHERE id = $2", [JSON.stringify([...doneStages]), runId]);
     }
     const note = c.budgetHit ? "Finished with the budget reached: some items were skipped." : null;
+    let walletList: WalletListSummary | undefined;
+    try {
+      walletList = await computeWalletList(runId, s, run.mode === "tokens" ? inputs : [], deps.walletList);
+    } catch (e) {
+      if (e instanceof CancelError || e instanceof AuthError) throw e;
+      await c.log("warn", `Wallet list summary not computed: ${redact((e as Error).message ?? String(e))}`);
+    }
     await db.run("UPDATE runs SET status = 'done', stage = NULL, finished_at = $1, error = $2, progress = $3 WHERE id = $4", [
-      Date.now(), note, JSON.stringify({ stage: "done", done: 1, total: 1, credits: rpc.creditsUsed() }), runId,
+      Date.now(), note, JSON.stringify({ stage: "done", done: 1, total: 1, credits: rpc.creditsUsed(), ...(walletList ? { walletList } : {}) }), runId,
     ]);
     await c.log("info", `Done. ${rpc.creditsUsed().toLocaleString()} credits used by this run.`);
   } catch (e) {

@@ -18,7 +18,7 @@ interface Detail {
 // One sentence a teammate can act on, built from the numbers below it.
 function verdict(w: WalletRow, s: TraderStats | null, r: RunnerStats | null, conviction: number): string {
   if (w.tags.includes("dev")) return "Deployer of one of your tokens.";
-  if (w.tags.includes("dev-linked")) return "Funded from the same source as a deployer: likely an insider.";
+  if (w.tags.includes("dev-linked")) return "Funded from the same source as a deployer: tied to that launch, so left out of the list.";
   if (w.tags.includes("bundle")) return "Part of a bundle: several wallets from one funder buying the same launch.";
   if (!s && !r) return w.historyStatus?.startsWith("skipped") ? "Trade history not read in this run." : "Not checked yet.";
   const parts: string[] = [];
@@ -101,6 +101,23 @@ export function WalletDrawer({ runId, data, w, onClose, onWatch }: { runId: numb
             <Tile label="Win rate" v={s ? pct(s.winRate) : "—"} sub={s ? `${s.wins}/${s.closed} closed` : undefined} />
             <Tile label="Median hold" v={duration(s?.medianHoldMin)} sub={s?.tradesPerDay != null ? `${s.tradesPerDay.toFixed(1)} trades/day` : undefined} />
           </div>
+
+          {s && (
+            <div className="rounded-lg border border-line bg-panel-2/60 px-3 py-2.5 text-[12px] text-dim leading-snug" role="note">
+              <div>
+                What this wallet <b className="text-text font-medium">realized</b> on other tokens, from {s.closed.toLocaleString()} closed trade{s.closed === 1 ? "" : "s"} in its last{" "}
+                {s.txsRead.toLocaleString()} transactions. Unsold bags count as zero. This is not what a follower would have made, and it is not advice.
+              </div>
+              <div className="mt-1.5 text-faint">
+                {s.closed < 10 ? `Small sample: ${s.closed} closed trade${s.closed === 1 ? "" : "s"}. ` : ""}
+                History:{" "}
+                {s.truncated === undefined ? "not measured" : s.truncated === null ? "unknown whether older trades exist" : s.truncated ? "truncated, so older sells may be missing" : "complete"}.{" "}
+                Left-out positions: {s.excludedProfitSol === undefined ? "not measured" : `${sol(s.excludedProfitSol, 2)} SOL received${s.excludedCount ? ` across ${s.excludedCount}` : ""}`}.{" "}
+                Biggest trade share of profit: {s.topTradeShare === undefined ? "not measured" : s.topTradeShare === null ? "n/a" : pct(s.topTradeShare)}.{" "}
+                Operator: {s.operatorId === undefined ? "not measured" : s.operatorId ?? "none"}.
+              </div>
+            </div>
+          )}
 
           {!detail && !failed && (
             <div className="space-y-6" role="status" aria-busy="true">

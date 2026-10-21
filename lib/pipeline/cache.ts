@@ -125,6 +125,7 @@ export interface CachedHistory {
   txsRead: number;
   oldest: number | null;
   newTxs: number; // transactions actually fetched this time
+  complete: boolean; // the read reached the wallet's first transaction
 }
 
 export async function loadHistoryEvents(wallet: string): Promise<OwnerEvent[] | null> {
@@ -194,5 +195,5 @@ export async function cachedHistory(rpc: Rpc, wallet: string, s: { maxTxs: numbe
        txs_read = excluded.txs_read, depth = excluded.depth, complete = excluded.complete, events = excluded.events, updated_at = excluded.updated_at`,
     [wallet, newestSig, newestTime, oldest, txsRead, depth, complete ? 1 : 0, pack(encodeEvents(events)), nowS()],
   );
-  return { events, txsRead, oldest, newTxs: fetched };
+  return { events, txsRead, oldest, newTxs: fetched, complete };
 }

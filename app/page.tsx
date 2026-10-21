@@ -138,8 +138,8 @@ export default function NewAnalysis() {
         <div>
           <h1 className="text-[21px] sm:text-[24px] font-semibold tracking-tight leading-tight">Find the wallets that keep catching runners</h1>
           <p className="text-dim mt-1.5 max-w-2xl">
-            Paste tokens that ran. Elmon finds who got in early on several of them, sets insiders aside, and ranks the rest by how many other runners
-            they caught, then by what they actually made.
+            Paste tokens that ran. Elmon finds who got in early on several of them, sets insiders aside, and ranks the rest by what each wallet realized on
+            other tokens, with the evidence next to every score: closed trades, history read, and whether copy-trading wallets were merged.
           </p>
         </div>
 

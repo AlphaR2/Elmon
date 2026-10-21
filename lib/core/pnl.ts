@@ -1,15 +1,17 @@
 import type { OwnerEvent } from "../solana/tx";
+import type { WalletEvidence } from "./walletList.types";
 
 // Position accounting, following tracced's published method (MIT): average cost, a position is closed once 99%
 // is sold, and a position whose cost is unknown (tokens arrived by transfer, or sold before any buy we saw) is
 // excluded rather than counted as profit.
 
+export type ExcludedReason = "transfer-in" | "sold-before-buy" | "transferred-out";
 export type PositionStatus = "closed" | "open" | "excluded";
 
 export interface Position {
   mint: string;
   status: PositionStatus;
-  excludedReason?: "transfer-in" | "sold-before-buy" | "transferred-out";
+  excludedReason?: ExcludedReason;
   firstBuy: number | null; // unix seconds
   lastSell: number | null;
   buys: number;
@@ -98,7 +100,8 @@ export function buildPositions(events: OwnerEvent[]): Position[] {
   return out;
 }
 
-export interface TraderStats {
+// Stats saved before the wallet list existed lack the WalletEvidence fields; readers must treat them as "not measured".
+export interface TraderStats extends WalletEvidence {
   txsRead: number;
   windowStart: number | null;
   windowEnd: number | null;
@@ -157,7 +160,7 @@ export function isBotLike(positions: Position[]): boolean {
 
 export function traderStats(
   events: OwnerEvent[],
-  opts: { excludeMints?: Set<string>; now: number; openGraceHours: number; txsRead: number },
+  opts: { excludeMints?: Set<string>; now: number; openGraceHours: number; txsRead: number; historyComplete?: boolean }, // historyComplete: the saved read reached the wallet's first tx
 ): TraderStats {
   const all = buildPositions(events).filter((p) => !opts.excludeMints?.has(p.mint));
   const times = events.map((e) => e.blockTime).filter((t): t is number => t != null);
@@ -166,6 +169,17 @@ export function traderStats(
   const windowDays = windowStart != null && windowEnd != null ? Math.max((windowEnd - windowStart) / 86400, 1 / 24) : 0;
   const graceCut = opts.now - opts.openGraceHours * 3600;
   const excluded = all.filter((p) => p.status === "excluded");
+  // Cost of an excluded position is unknown, so what we can state is its proceeds, not a profit.
+  const excludedByReason: WalletEvidence["excludedByReason"] = {
+    "transfer-in": { count: 0, proceedsSol: 0 },
+    "sold-before-buy": { count: 0, proceedsSol: 0 },
+    "transferred-out": { count: 0, proceedsSol: 0 },
+  };
+  for (const p of excluded) {
+    const b = excludedByReason[p.excludedReason ?? "sold-before-buy"];
+    b.count++;
+    b.proceedsSol += p.proceedsSol;
+  }
   // Positions opened too recently to judge are left out unless already closed.
   const judged = all.filter((p) => p.status !== "excluded" && (p.status === "closed" || (p.firstBuy ?? 0) <= graceCut));
   const closed = judged.filter((p) => p.status === "closed");
@@ -177,6 +191,8 @@ export function traderStats(
   const buys = judged.reduce((a, p) => a + p.buys, 0);
   const trades = all.reduce((a, p) => a + p.buys + p.sells, 0);
   const sortedByPnl = [...judged].sort((a, b) => b.pnlSol - a.pnlSol);
+  const netSol = judged.reduce((a, p) => a + p.pnlSol, 0);
+  const bestClosed = closed.reduce<number | null>((m, p) => (m == null || p.pnlSol > m ? p.pnlSol : m), null);
   const pick = (p?: Position) => (p ? { mint: p.mint, pnlSol: p.pnlSol, multiple: p.multiple } : null);
   return {
     txsRead: opts.txsRead,
@@ -187,7 +203,7 @@ export function traderStats(
     excluded: excluded.length,
     wins,
     winRate: closed.length ? wins / closed.length : null,
-    netSol: judged.reduce((a, p) => a + p.pnlSol, 0),
+    netSol,
     closedPnlSol: closed.reduce((a, p) => a + p.pnlSol, 0),
     realizedSol: judged.reduce((a, p) => a + p.realizedSol, 0),
     spentSol: spent,
@@ -196,6 +212,12 @@ export function traderStats(
     medianHoldMin: median(holds),
     avgBuySol: buys ? spent / buys : null,
     tradesPerDay: windowDays ? trades / windowDays : null,
+    excludedProfitSol: excluded.reduce((a, p) => a + p.proceedsSol, 0),
+    excludedCount: excluded.length,
+    excludedByReason,
+    topTradeShare: netSol > 0 && bestClosed != null ? bestClosed / netSol : null,
+    truncated: opts.historyComplete == null ? null : !opts.historyComplete,
+    operatorId: null,
     botLike: isBotLike(all),
     lastTradeTime: windowEnd,
     ...consistency(closed),
@@ -207,6 +229,9 @@ export function traderStats(
       .map(({ mint, status, pnlSol, multiple, spentSol, proceedsSol, holdMinutes, firstBuy }) => ({ mint, status, pnlSol, multiple, spentSol, proceedsSol, holdMinutes, firstBuy })),
   };
 }
+
+// Bias note: unsold tokens are valued at zero, so a wallet whose sells fall outside the read window (or after a
+// cut) looks worse than it was. Windowed comparisons accept that bias on both sides alike.
 
 // Absolute 0-100 score so runs are comparable. Components (shown in the UI):
 //   profit  = (tanh(netSol / 20) + 1) / 2         net SOL made, saturating around +-40 SOL
